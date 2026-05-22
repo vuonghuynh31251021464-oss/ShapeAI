@@ -7,6 +7,11 @@ import time
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 import joblib
+import os
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.utils import to_categorical
+import joblib
 
 # ─── PAGE CONFIG ──────────────────────────────────────────────
 st.set_page_config(
@@ -300,46 +305,39 @@ CLASS_NAMES = ['Hình tròn', 'Hình vuông', 'Hình tam giác',
 CLASS_ICONS = ['⭕', '🟦', '🔺', '▬', '🫧', '⭐']
 
 # ─── FEATURE EXTRACTION ───────────────────────────────────────
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
-from tensorflow.keras.utils import to_categorical
-import joblib
+
 
 # ─── CNN MODEL (Tốt hơn rất nhiều) ─────────────────────────────────
 @st.cache_resource(show_spinner=False)
+# ─── LOAD MODEL (RandomForest) ─────────────────────────────────
+@st.cache_resource(show_spinner=False)
 def load_model():
-    # Tạo hoặc load model CNN
-    model = Sequential([
-        Conv2D(32, (3,3), activation='relu', input_shape=(64,64,1)),
-        MaxPooling2D(2,2),
-        Conv2D(64, (3,3), activation='relu'),
-        MaxPooling2D(2,2),
-        Conv2D(128, (3,3), activation='relu'),
-        MaxPooling2D(2,2),
-        Flatten(),
-        Dense(256, activation='relu'),
-        Dropout(0.5),
-        Dense(6, activation='softmax')
-    ])
+    if os.path.exists('shapeai_model.pkl') and os.path.exists('scaler.pkl'):
+        clf = joblib.load('shapeai_model.pkl')
+        scaler = joblib.load('scaler.pkl')
+        return clf, scaler
     
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    
-    # Nếu chưa có model đã train, train nhanh trên synthetic data
-    if not os.path.exists('shapeai_cnn_model.h5'):
-        st.info("Đang huấn luyện CNN lần đầu (khoảng 15-25 giây)...")
-        X, y = make_cnn_dataset(8000)   # Hàm tạo data bên dưới
-        X = X.reshape(-1, 64, 64, 1)
-        y_cat = to_categorical(y, 6)
+    with st.spinner("🎨 Đang huấn luyện mô hình ShapeAI..."):
+        X, y = make_dataset(4500)          # Tăng data
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
         
-        model.fit(X, y_cat, epochs=12, batch_size=64, verbose=0)
-        model.save('shapeai_cnn_model.h5')
-        st.success("✅ Huấn luyện xong!")
-    else:
-        model = tf.keras.models.load_model('shapeai_cnn_model.h5')
-    
-    return model
-
+        clf = RandomForestClassifier(
+            n_estimators=350,
+            max_depth=28,
+            min_samples_split=3,
+            min_samples_leaf=1,
+            random_state=42,
+            n_jobs=-1,
+            class_weight='balanced'
+        )
+        clf.fit(X_scaled, y)
+        
+        # Lưu model
+        joblib.dump(clf, 'shapeai_model.pkl')
+        joblib.dump(scaler, 'scaler.pkl')
+        
+    return clf, scaler
 # ─── TẠO DATASET CHO CNN ─────────────────────────────────────
 def make_cnn_dataset(n=8000):
     X, y = [], []
